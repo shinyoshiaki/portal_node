@@ -8,17 +8,18 @@ export default class webrtc {
     this.targetId;
     this.isConnected = false;
     this.isCheking = false;
+    this.isDisconnected = false;
     this.type = _type;
     switch (_type) {
       case "offer":
-        console.log("webrtc", "offer");
+        //console.log("webrtc", "offer");
         this.initOffer();
         break;
       case "answer":
-        console.log("webrtc", "answer");
+        //console.log("webrtc", "answer");
         this.initAnswer();
         break;
-    }    
+    }
   }
 
   initOffer() {
@@ -51,32 +52,33 @@ export default class webrtc {
   }
 
   connecting(targetId) {
-    console.log("webrtc_connecting", targetId);
+    //console.log("webrtc_connecting", targetId);
     this.targetId = targetId;
     this.isConnected = false;
   }
 
   connected() {
-    console.log("webrtc", "connected", this.targetId);
+    //console.log("webrtc", "connected", this.targetId);
     this.isConnected = true;
   }
 
   failed() {
-    console.log("webrtc", "connectFailed", this.targetId);
+    //console.log("webrtc", "connectFailed", this.targetId);
   }
 
   disconnected() {
-    console.log("webrtc", "disconnected", this.targetId);
+    //console.log("webrtc", "disconnected", this.targetId);
     this.isConnected = false;
+    this.isDisconnected = true;
   }
 
   send(data) {
     try {
-      //console.log("webrtc_send target", this.targetId);
+      ////console.log("webrtc_send target", this.targetId);
       this.rtc.send(data);
       return true;
     } catch (error) {
-      //console.log("send error");
+      ////console.log("send error");
       this.disconnected();
       return false;
     }
