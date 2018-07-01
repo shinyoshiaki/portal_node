@@ -12,6 +12,18 @@ export const def = {
   ONCOMMAND: "ONCOMMAND"
 };
 
+function packetFormat(type, data) {
+  let packet = {
+    layer: "networkLayer",
+    type: type,
+    data: data,
+    date: Date.now(),
+    hash: ""
+  };
+  packet.hash = sha1(JSON.stringify(packet));
+  return JSON.stringify(packet);
+}
+
 export default class Mesh {
   constructor(nodeId) {
     this.ev = new Events.EventEmitter();
@@ -62,14 +74,7 @@ export default class Mesh {
   }
 
   broadCast(tag, data) {
-    const packet = {
-      type: def.BROADCAST,
-      data: { tag: tag, data, data },
-      date: Date.now(),
-      hash: ""
-    };
-    packet.hash = sha1(JSON.stringify(packet));
-    this.onBroadCast(JSON.stringify(packet));
+    this.onBroadCast(packetFormat(def.BROADCAST, { tag: tag, data: data }));
   }
 
   connectPeers(targetList) {
@@ -162,14 +167,13 @@ export default class Mesh {
       if (this.peerList[key].isDisconnected) deleteList.push(key);
     }
     console.log("delete list", deleteList);
-    deleteList.forEach(v => {      
+    deleteList.forEach(v => {
       delete this.peerList[v];
     });
   }
 
   onCommand(packet) {
     const json = JSON.parse(packet);
-    //console.log("on command");
     const type = json.type;
     switch (type) {
       case def.LISTEN:
