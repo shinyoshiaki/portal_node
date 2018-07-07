@@ -22,18 +22,28 @@ export default class PortalNode {
       this.targetUrl = "http://" + targetAddress + ":" + targetPort;
     }
     this.nodeId = sha1(Math.random().toString());
-    //console.log("nodeId", this.nodeId);
     this.mesh = new Mesh(this.nodeId);
 
+    //ローカルじゃなければpublicIpを取ってくる
     if (isLocal) {
       this.myUrl = "http://localhost:" + this.myPort;
-      //console.log("start local", this.myUrl);
     } else {
       (async () => {
         const result = await publicIp.v4();
         this.myUrl = `http://${result}:${this.myPort}`;
-        //console.log("start global", this.myUrl);
       })();
+    }
+
+    if (this.targetUrl !== undefined) {
+      const socket = client.connect(this.targetUrl);
+      socket.on("connect", () => {
+        this.offerFirst(socket);
+      });
+
+      socket.on(def.ANSWER, data => {
+        peerOffer.rtc.signal(data.sdp);
+        peerOffer.connecting(data.nodeId);
+      });
     }
 
     this.srv = http.Server();
@@ -45,25 +55,9 @@ export default class PortalNode {
         this.answerFirst(data, socket.id);
       });
     });
-
-    if (this.targetUrl != undefined) {
-      const socket = client.connect(this.targetUrl);
-
-      socket.on("connect", () => {
-        //console.log("socket connected");
-        this.offerFirst(socket);
-      });
-
-      socket.on(def.ANSWER, data => {
-        peerOffer.rtc.signal(data.sdp);
-        peerOffer.connecting(data.nodeId);
-      });
-    }
   }
 
   answerFirst(data, socketId) {
-    //console.log("@cli", "answer first");
-
     return new Promise(resolve => {
       peerAnswer = new WebRTC("answer");
 
@@ -82,8 +76,7 @@ export default class PortalNode {
       });
 
       peerAnswer.rtc.on("error", err => {
-        //console.log("error", err);
-
+        console.log("error", err);
         resolve(false);
       });
 
@@ -96,7 +89,6 @@ export default class PortalNode {
   }
 
   offerFirst(socket) {
-    //console.log("@cli", "offer first");
     peerOffer = new WebRTC("offer");
 
     peerOffer.rtc.on("signal", sdp => {

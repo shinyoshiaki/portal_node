@@ -47,8 +47,8 @@ export default class Mesh {
         id: this.nodeId
       })
     );
-    this.peerList[peer.targetId] = peer;
-    //console.log("added peer", this.getAllPeerId());
+    this.peerList[peer.nodeId] = peer;
+    console.log("added peer", this.getAllPeerId());
   }
 
   getAllPeerId() {
@@ -89,25 +89,19 @@ export default class Mesh {
         }
         this.state.isConnectPeers = false;
       })();
-    } else {
-      //console.log("is connecting peers");
     }
   }
 
   offer(target, r) {
-    return new Promise(resolve => {
-      //console.log(" offer", target);
+    return new Promise(resolve => {      
       r.peer.connecting(target);
 
       r.peer.rtc.on("error", err => {
-        //console.log(" offer connect error", target, err);
-
+        console.log(" offer connect error", target, err);
         resolve(false);
       });
 
       r.peer.rtc.on("signal", sdp => {
-        //console.log(" offer store", target);
-
         this.broadCast(def.MESH_OFFER, {
           from: this.nodeId,
           to: target,
@@ -115,8 +109,7 @@ export default class Mesh {
         });
       });
 
-      r.peer.rtc.on("connect", () => {
-        //console.log(" offer connected", target);
+      r.peer.rtc.on("connect", () => {        
         r.peer.connected();
         this.addPeer(r.peer);
         resolve(true);
@@ -130,12 +123,11 @@ export default class Mesh {
 
   answer(target, sdp, r) {
     return new Promise(resolve => {
-      r.peer.connecting(target);
-      //console.log(" answer", target);
+      r.peer.connecting(target);      
       r.peer.rtc.signal(sdp);
 
       r.peer.rtc.on("error", err => {
-        //console.log("error", target, err);
+        console.log("error", target, err);
         resolve(false);
       });
 
@@ -147,8 +139,7 @@ export default class Mesh {
         });
       });
 
-      r.peer.rtc.on("connect", () => {
-        //console.log(" answer connected", target);
+      r.peer.rtc.on("connect", () => {        
         r.peer.connected();
 
         this.addPeer(r.peer);
@@ -165,8 +156,7 @@ export default class Mesh {
     const deleteList = [];
     for (let key in this.peerList) {
       if (this.peerList[key].isDisconnected) deleteList.push(key);
-    }
-    console.log("delete list", deleteList);
+    }    
     deleteList.forEach(v => {
       delete this.peerList[v];
     });
@@ -191,8 +181,8 @@ export default class Mesh {
         break;
       case def.BROADCAST:
         if (this.onBroadCast(packet)) {
-          const broadcastData = json.data;
-          //console.log("oncommand tag", broadcastData.tag);
+          const broadcastData = json.data;      
+
           switch (broadcastData.tag) {
             case def.MESH_OFFER: {
               const to = broadcastData.data.to;
@@ -204,10 +194,8 @@ export default class Mesh {
                   this.ref.peer = new WebRTC("answer");
                   (async () => {
                     const result = await this.answer(from, sdp, this.ref);
-                    if (result) {
-                      //console.log("answer success");
-                    } else {
-                      //console.log("answer fail");
+                    if (!result) {                      
+                      console.log("mesh answer fail");
                     }
                     this.state.isMeshAnswer = false;
                   })();
@@ -218,8 +206,7 @@ export default class Mesh {
             case def.MESH_ANSWER: {
               const to = broadcastData.data.to;
               if (to === this.nodeId) {
-                const sdp = broadcastData.data.sdp;
-                //console.log("on mesh answer to me");
+                const sdp = broadcastData.data.sdp;                
                 this.ref.peer.rtc.signal(sdp);
               }
               break;
