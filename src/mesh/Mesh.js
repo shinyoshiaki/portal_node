@@ -38,6 +38,7 @@ export default class Mesh {
     };
   }
 
+  //メッシュネットワークにピアを加える
   addPeer(peer) {
     //データを受け取ったときの挙動
     peer.rtc.on("data", data => {
@@ -114,7 +115,7 @@ export default class Mesh {
         //sdpを相手に確実に届けるためにブロードキャスト
         this.broadCast(def.MESH_OFFER, {
           from: this.nodeId,
-          to: target,
+          to: target,//宛先
           sdp: sdp
         });
       });
@@ -172,6 +173,7 @@ export default class Mesh {
     });
   }
 
+  //データを受け取ったときの処理
   onCommand(packet) {
     const json = JSON.parse(packet);
     const type = json.type;
@@ -186,13 +188,14 @@ export default class Mesh {
           })
         );
         break;
-      case def.ON_LISTEN: //ピアのリストの返信を受け取ったとき
+      case def.ON_LISTEN:
+        //ピアのリストの返信を受け取ったとき
         const targetList = json.data;
         //受け取ったリストに接続する
         this.connectPeers(targetList);
         break;
       case def.BROADCAST:
-        //ブロードキャスト
+        //ブロードキャスト絡みの処理
         if (this.onBroadCast(packet)) {
           const broadcastData = json.data;
 
@@ -239,6 +242,7 @@ export default class Mesh {
         }
         break;
     }
+    //切断されたピアを削除
     this.cleanPeers();
   }
 }
