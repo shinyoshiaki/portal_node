@@ -1,5 +1,5 @@
 "use strict";
-import WebRTC from "../lib/webrtc";
+import WebRTC from "../lib/WebRTC";
 import http from "http";
 import socketio from "socket.io";
 import client from "socket.io-client";
@@ -62,68 +62,57 @@ export default class PortalNode {
     }
   }
 
-  //webrtcのoffer側
   offerFirst(socket) {
-    peerOffer = new WebRTC("offer");
+    console.log("@cli", "offer first");
+    peerOffer = new WebRTC();
+    peerOffer.makeOffer("json");
 
-    //sdpの生成完了時
-    peerOffer.rtc.on("signal", sdp => {
-      //サーバ側へoffer sdpを送信
+    peerOffer.ev.on("signal", sdpValue => {
       socket.emit(def.OFFER, {
-        type: def.OFFER,
         nodeId: this.nodeId,
-        sdp: sdp
+        sdp: sdpValue
       });
     });
 
-    peerOffer.rtc.on("error", err => {
-      console.log("error", err);
-    });
-
-    //接続完了時
-    peerOffer.rtc.on("connect", () => {
+    peerOffer.ev.on("connect", () => {
       peerOffer.connected();
-      //メッシュネットワークに加える
-      this.mesh.addPeer(peerOffer);
+      setTimeout(() => {
+        this.mesh.addPeer(peerOffer);
+      }, 1 * 1000);
     });
   }
 
   //webrtcのanswer側
   answerFirst(data, socketId) {
     return new Promise(resolve => {
-      peerAnswer = new WebRTC("answer");
+      peerAnswer = new WebRTC();
+      peerAnswer.makeAnswer(data.sdp);
 
       peerAnswer.connecting(data.nodeId);
-      
-      //offer sdpをもとにanswer sdpを生成する
-      peerAnswer.rtc.signal(data.sdp);
 
       setTimeout(() => {
         resolve(false);
-      }, 4 * 1000);
+      }, 3 * 1000);
 
       //sdpの生成完了時
-      peerAnswer.rtc.on("signal", sdp => {
+      peerAnswer.ev.on("signal", sdp => {
         //offerを送ってきたクライアント側にanswer sdpを返す
+        console.log("answer signal", socketId);
         this.io.sockets.sockets[socketId].emit(def.ANSWER, {
           sdp: sdp,
           nodeId: this.nodeId
         });
       });
 
-      peerAnswer.rtc.on("error", err => {
-        console.log("error", err);
-        resolve(false);
-      });
-
       //接続完了時
-      peerAnswer.rtc.on("connect", () => {
+      peerAnswer.ev.on("connect", () => {
         peerAnswer.connected();
         //メッシュネットワークに加える
-        this.mesh.addPeer(peerAnswer);
+        setTimeout(() => {
+          this.mesh.addPeer(peerAnswer);
+        }, 1 * 1000);
         resolve(true);
       });
     });
   }
-
 }

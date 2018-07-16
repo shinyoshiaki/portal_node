@@ -1,6 +1,6 @@
-import WebRTC from "../lib/webrtc";
+import WebRTC from "../lib/WebRTC";
 import Events from "events";
-import sha1 from "sha1";
+import { packetFormat } from "../constants/format";
 
 export const def = {
   LISTEN: "LISTEN",
@@ -12,23 +12,14 @@ export const def = {
   ONCOMMAND: "ONCOMMAND"
 };
 
-function packetFormat(type, data) {
-  let packet = {
-    layer: "networkLayer",
-    type: type,
-    data: data,
-    date: Date.now(),
-    hash: ""
-  };
-  packet.hash = sha1(JSON.stringify(packet));
-  return JSON.stringify(packet);
-}
+export const action = {
+  PEER: "PEER"
+};
 
 export default class Mesh {
   constructor(nodeId) {
     this.ev = new Events.EventEmitter();
     this.nodeId = nodeId;
-    console.log("my nodeId", this.nodeId);
     this.peerList = {};
     this.packetIdList = [];
     this.ref = {};
@@ -38,26 +29,22 @@ export default class Mesh {
     };
   }
 
-  //メッシュネットワークにピアを加える
   addPeer(peer) {
-    //データを受け取ったときの挙動
-    peer.rtc.on("data", data => {
+    peer.ev.on("data", data => {
       this.onCommand(data);
     });
-    //ピアのリストに追加
-    this.peerList[peer.nodeId] = peer;
-    //メッシュネットワークの情報を聞く
     peer.send(
       JSON.stringify({
         type: def.LISTEN,
         id: this.nodeId
       })
     );
-    console.log("peer list", this.getAllPeerId());
+    this.peerList[peer.nodeId] = peer;
+    console.log("added peer", this.getAllPeerId());
+    this.ev.emit(action.PEER);
   }
 
   getAllPeerId() {
-    this.cleanPeers();
     const idList = [];
     for (let key in this.peerList) {
       idList.push(key);
@@ -65,17 +52,10 @@ export default class Mesh {
     return idList;
   }
 
-  broadCast(tag, data) {
-    //ブロードキャストする
-    this.onBroadCast(packetFormat(def.BROADCAST, { tag: tag, data: data }));
-  }
-
   onBroadCast(packet) {
     const json = JSON.parse(packet);
-    //このメッセージがすでに送信済みか調べる
     if (!JSON.stringify(this.packetIdList).includes(json.hash)) {
       this.packetIdList.push(json.hash);
-      //知っている全ノードに送信
       for (let key in this.peerList) {
         this.peerList[key].send(packet);
       }
@@ -85,81 +65,82 @@ export default class Mesh {
     }
   }
 
+  broadCast(tag, data) {
+    this.onBroadCast(packetFormat(def.BROADCAST, { tag: tag, data: data }));
+  }
+
   connectPeers(targetList) {
     if (!this.state.isConnectPeers) {
       (async () => {
         this.state.isConnectPeers = true;
-        //targetListすべてに接続を試行
+        //console.log("connect peers", targetList);
         for (let target of targetList) {
           if (!this.getAllPeerId().includes(target) && target !== this.nodeId) {
-            this.ref.peer = new WebRTC("offer");
-            //this.offer()が終わるまでawaitで待機
-            await this.offer(target, this.ref);
+            try {
+              this.ref.peer = new WebRTC();
+              const result = await this.offer(target, this.ref);
+              this.addPeer(result);
+            } catch (error) {
+              console.log(error);
+            }
           }
         }
         this.state.isConnectPeers = false;
       })();
+    } else {
+      console.log("is connecting peers");
     }
   }
 
   offer(target, r) {
-    return new Promise(resolve => {
-      r.peer.connecting(target);
+    r.peer.makeOffer("json");
+    r.peer.connecting(target);
+    return new Promise((resolve, reject) => {
+      r.peer.ev.once("signal", sdp => {
+        console.log(" offer store", target);
 
-      r.peer.rtc.on("error", err => {
-        console.log(" offer connect error", target, err);
-        resolve(false);
-      });
-
-      r.peer.rtc.on("signal", sdp => {
-        //sdpを相手に確実に届けるためにブロードキャスト
         this.broadCast(def.MESH_OFFER, {
           from: this.nodeId,
-          to: target,//宛先
+          to: target,
           sdp: sdp
         });
       });
 
-      r.peer.rtc.on("connect", () => {
+      r.peer.ev.once("connect", () => {
+        console.log(" offer connected", target);
         r.peer.connected();
-        this.addPeer(r.peer);
-        resolve(true);
+        resolve(r.peer);
       });
 
       setTimeout(() => {
-        resolve(false);
+        reject();
       }, 3 * 1000);
     });
   }
 
   answer(target, sdp, r) {
-    return new Promise(resolve => {
-      r.peer.connecting(target);
-      r.peer.rtc.signal(sdp);
+    r.peer.makeAnswer(sdp);
+    r.peer.connecting(target);
+    return new Promise((resolve, reject) => {
+      console.log(" answer", target);
 
-      r.peer.rtc.on("error", err => {
-        console.log("error", target, err);
-        resolve(false);
-      });
-
-      r.peer.rtc.on("signal", sdp => {
+      r.peer.ev.once("signal", sdp => {
         this.broadCast(def.MESH_ANSWER, {
           from: this.nodeId,
-          to: target, //offerしてきたノードに返す
+          to: target,
           sdp: sdp
         });
       });
 
-      r.peer.rtc.on("connect", () => {
+      r.peer.ev.once("connect", () => {
+        console.log(" answer connected", target);
         r.peer.connected();
-
-        this.addPeer(r.peer);
-        resolve(true);
+        resolve(r.peer);
       });
 
       setTimeout(() => {
-        resolve(false);
-      }, 4 * 1000);
+        reject();
+      }, 3 * 1000);
     });
   }
 
@@ -168,54 +149,54 @@ export default class Mesh {
     for (let key in this.peerList) {
       if (this.peerList[key].isDisconnected) deleteList.push(key);
     }
+    if (deleteList.length > 0) {
+      console.log("delete list", deleteList);
+    }
     deleteList.forEach(v => {
       delete this.peerList[v];
     });
   }
 
-  //データを受け取ったときの処理
   onCommand(packet) {
     const json = JSON.parse(packet);
     const type = json.type;
     switch (type) {
       case def.LISTEN:
-        //ピアのリストを聞かれたとき
-        //聞いてきたノードに返信する
+        console.log("on listen", json.id);
         this.peerList[json.id].send(
           JSON.stringify({
             type: def.ON_LISTEN,
-            data: this.getAllPeerId() //接続しているすべてのピアの情報を取得
+            data: this.getAllPeerId()
           })
         );
         break;
       case def.ON_LISTEN:
-        //ピアのリストの返信を受け取ったとき
+        console.log("listen done");
         const targetList = json.data;
-        //受け取ったリストに接続する
         this.connectPeers(targetList);
         break;
+      case def.MESH_MESSAGE:
+        console.log("mesh message", json);
+        this.ev.emit(def.ONCOMMAND, json);
+        break;
       case def.BROADCAST:
-        //ブロードキャスト絡みの処理
         if (this.onBroadCast(packet)) {
           const broadcastData = json.data;
-
+          console.log("oncommand tag", broadcastData.tag);
           switch (broadcastData.tag) {
             case def.MESH_OFFER: {
-              //webrtcのofferを受け取った際の処理
               const to = broadcastData.data.to;
-              //ブロードキャストされたデータが自分宛てであった場合
               if (to === this.nodeId) {
                 const from = broadcastData.data.from;
                 const sdp = broadcastData.data.sdp;
                 if (!this.state.isMeshAnswer) {
                   this.state.isMeshAnswer = true;
-                  this.ref.peer = new WebRTC("answer");
+                  this.ref.peer = new WebRTC();
                   (async () => {
-                    //answerの処理
-                    const result = await this.answer(from, sdp, this.ref);
-                    if (!result) {
-                      console.log("mesh answer fail");
-                    }
+                    await this.answer(from, sdp, this.ref).then(peer => {
+                      console.log("answer success");
+                      this.addPeer(peer);
+                    }, console.log("answer fail"));
                     this.state.isMeshAnswer = false;
                   })();
                 }
@@ -223,26 +204,25 @@ export default class Mesh {
               break;
             }
             case def.MESH_ANSWER: {
-              //webrtcのanswer sdpを受け取った際の処理
               const to = broadcastData.data.to;
-              //ブロードキャストのデータがこのノードあてだった場合
               if (to === this.nodeId) {
                 const sdp = broadcastData.data.sdp;
-                //接続完了処理
-                this.ref.peer.rtc.signal(sdp);
+                console.log("on mesh answer to me");
+                this.ref.peer.setAnswer(sdp);
               }
               break;
             }
             case def.MESH_MESSAGE:
-              //その他のデータを受け取ったときの処理
-              //イベントを起こす
-              this.ev.emit(def.ONCOMMAND, broadcastData.data);
+              this.ev.emit(def.ONCOMMAND, broadcastData);
+              break;
+            default:
               break;
           }
         }
         break;
+      default:
+        break;
     }
-    //切断されたピアを削除
     this.cleanPeers();
   }
 }
